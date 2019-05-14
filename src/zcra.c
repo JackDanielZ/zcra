@@ -2,13 +2,42 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #define _POSIX_
 #include <limits.h>
+
+#define PATH 1024
+
+static char *
+_prg_full_path_guess(const char *prg)
+{
+   char full_path[PATH];
+   if (strchr(prg, '/')) return strdup(prg);
+   char *paths = strdup(getenv("PATH"));
+   char *paths0 = paths;
+   char *ret = NULL;
+   while (paths && *paths && !ret)
+     {
+        char *colon = strchr(paths, ':');
+        if (colon) *colon = '\0';
+
+        sprintf(full_path, "%s/%s", paths, prg);
+        ret = realpath(full_path, NULL);
+
+        paths += strlen(paths);
+        if (colon) paths++;
+     }
+   free(paths0);
+   return ret;
+}
 
 int
 main(int argc, char **argv)
 {
-   int i, len, opt, id = -1, ret = 0, help = 0;
+   int opt, id = -1, ret = 0, help = 0;
+   int pipe_in[2], pipe_out[2];
    struct option opts[] =
      {
           { "help", no_argument,       NULL, 'h' },
@@ -42,19 +71,29 @@ main(int argc, char **argv)
         goto end;
      }
 
-   /* Replace the current command line to hide the Exactness part */
-   len = argv[argc - 1] + strlen(argv[argc - 1]) - argv[optind];
-   memcpy(argv[0], argv[optind], len);
-   memset(argv[0] + len, 0, _POSIX_PATH_MAX - len);
+   pipe(pipe_in);
+   pipe(pipe_out);
 
-   for (i = optind; i < argc; i++)
+   if (fork() == 0)
      {
-        if (i != optind)
-          {
-             argv[i - optind] = argv[0] + (argv[i] - argv[optind]);
-          }
+        /* Child */
+        dup2(pipe_in[0], STDIN_FILENO);
+        close(pipe_in[0]);
+        dup2(pipe_out[1], STDOUT_FILENO);
+        close(pipe_out[1]);
+        execv(_prg_full_path_guess(argv[optind]), argv + optind);
+     }
+   else
+     {
+        char buf[10];
+        int cnt;
+        sleep(2);
+        cnt = read(pipe_out[0], buf, 10);
+        buf[cnt] = '\0';
+        printf("%s\n", buf);
      }
    printf("Id: %d\n", id);
+   printf("APP: %s\n", _prg_full_path_guess(argv[0]));
 
 end:
    return ret;
