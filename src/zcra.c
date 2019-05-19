@@ -3,7 +3,9 @@
 #include <string.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <termios.h>
 #include <unistd.h>
+#include <sys/select.h>
 
 #define _POSIX_
 #include <limits.h>
@@ -79,18 +81,71 @@ main(int argc, char **argv)
         /* Child */
         dup2(pipe_in[0], STDIN_FILENO);
         close(pipe_in[0]);
+        close(pipe_in[1]);
+
+        close(pipe_out[0]);
         dup2(pipe_out[1], STDOUT_FILENO);
         close(pipe_out[1]);
+
         execv(_prg_full_path_guess(argv[optind]), argv + optind);
      }
    else
      {
-        char buf[10];
-        int cnt;
-        sleep(2);
-        cnt = read(pipe_out[0], buf, 10);
-        buf[cnt] = '\0';
-        printf("%s\n", buf);
+        /* ZCRA */
+        fd_set fds;
+        int nb, fd, max_fd;
+        struct termios t;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        FD_SET(pipe_out[0], &fds);
+        max_fd = pipe_out[0];
+
+        close(pipe_in[0]);
+        close(pipe_out[1]);
+
+        tcgetattr(STDIN_FILENO, &t);
+        t.c_lflag &= ~ICANON;
+        t.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &t);
+
+        tcgetattr(pipe_out[0], &t);
+        t.c_lflag &= ~ICANON;
+        t.c_lflag &= ~ECHO;
+        tcsetattr(pipe_out[0], TCSANOW, &t);
+
+        while(1)
+          {
+             nb = select(max_fd + 1, &fds, NULL, NULL, NULL);
+             for (fd = 0; fd < max_fd + 1 && nb; fd++)
+               {
+                  if (FD_ISSET(fd, &fds))
+                    {
+                       char c;
+                       nb--;
+                       if (fd == STDIN_FILENO)
+                         {
+                            if (read(STDIN_FILENO, &c, 1) == 1)
+                              {
+                                 fprintf(stderr, "%d - Received from stdin: %c\n", getpid(), c);
+                                 write(pipe_in[1], &c, 1);
+                              }
+                         }
+                       else if (fd == pipe_out[0])
+                         {
+                            if (read(pipe_out[0], &c, 1) == 1)
+                              {
+                                 fprintf(stderr, "%d - new data %c\n", getpid(), c);
+                                 printf("%c", c);
+                              }
+                            else
+                              {
+                                 FD_CLR(pipe_out[0], &fds);
+                                 close(pipe_out[0]);
+                              }
+                         }
+                    }
+               }
+          }
      }
    printf("Id: %d\n", id);
    printf("APP: %s\n", _prg_full_path_guess(argv[0]));

@@ -1,7 +1,7 @@
 - Process:
    + zcra [options: -i/--id] prg [args]
    + The tool launches prg with the args and provides pipes for stdin and stdout
-   - Every character received on one side is sent to the other side (tool_stdin -> pipe[0] -> pipe[1] -> prg_stdin)
+   + Every character received on one side is sent to the other side (tool_stdin -> pipe[0] -> pipe[1] -> prg_stdin)
    - A UDP socket is created to receive external commands on port 40000+id:
       - Format: script_name\0
       - script_name is the name of the script stored in some config directory. Check validity of the name (no path...)
