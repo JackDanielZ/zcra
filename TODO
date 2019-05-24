@@ -4,7 +4,7 @@
    + Every character received on one side is sent to the other side (tool_stdin -> pipe[0] -> pipe[1] -> prg_stdin)
    - Script:
       - The user sends the script name over UDP via bash command: echo blabla > /dev/udp/127.0.0.1/400??
-      - A UDP socket is created to receive external commands on port 40000+id:
+      + A UDP socket is created to receive external commands on port 40000+id:
          - Format: script_name\0
          - script_name is the name of the script stored in .config/zcra/scripts/name.zcra. Check validity of the name (no path...) and ?permissions?
          - Listened by select directly

@@ -2,10 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define _POSIX_
 #include <limits.h>
@@ -39,7 +42,7 @@ int
 main(int argc, char **argv)
 {
    int opt, id = -1, ret = 0, help = 0;
-   int pipe_in[2], pipe_out[2];
+   int pipe_in[2], pipe_out[2], udp_fd = -1;
    struct option opts[] =
      {
           { "help", no_argument,       NULL, 'h' },
@@ -92,9 +95,9 @@ main(int argc, char **argv)
    else
      {
         /* ZCRA */
-        fd_set fds;
-        int nb, fd, max_fd;
-        struct termios t;
+        fd_set fds, rfds;
+        int nb, fd, max_fd, error = 0;
+        struct termios old_in_t, t;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
         FD_SET(pipe_out[0], &fds);
@@ -103,7 +106,8 @@ main(int argc, char **argv)
         close(pipe_in[0]);
         close(pipe_out[1]);
 
-        tcgetattr(STDIN_FILENO, &t);
+        tcgetattr(STDIN_FILENO, &old_in_t);
+        t = old_in_t;
         t.c_lflag &= ~ICANON;
         t.c_lflag &= ~ECHO;
         tcsetattr(STDIN_FILENO, TCSANOW, &t);
@@ -113,12 +117,38 @@ main(int argc, char **argv)
         t.c_lflag &= ~ECHO;
         tcsetattr(pipe_out[0], TCSANOW, &t);
 
-        while(1)
+        /* UDP initialization */
+        if (id >= 0)
           {
-             nb = select(max_fd + 1, &fds, NULL, NULL, NULL);
+             struct sockaddr_in servaddr;
+             servaddr.sin_family = AF_INET;
+             servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+             servaddr.sin_port = htons(40000 + id);
+             /* create UDP socket */
+             udp_fd = socket(AF_INET, SOCK_DGRAM, 0);
+             /* binding server addr structure to udp socket */
+             if (bind(udp_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) != 0)
+               {
+                  perror("bind");
+                  error = 1;
+               }
+             FD_SET(udp_fd, &fds);
+             if (udp_fd > max_fd) max_fd = udp_fd;
+          }
+
+        while (error == 0)
+          {
+             rfds = fds;
+             nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
+             if (nb == -1)
+               {
+                  perror("select");
+                  error = 1;
+               }
+
              for (fd = 0; fd < max_fd + 1 && nb; fd++)
                {
-                  if (FD_ISSET(fd, &fds))
+                  if (FD_ISSET(fd, &rfds))
                     {
                        char c;
                        nb--;
@@ -143,12 +173,27 @@ main(int argc, char **argv)
                                  close(pipe_out[0]);
                               }
                          }
+                       else if (fd == udp_fd)
+                         {
+                            struct sockaddr_in cliaddr;
+                            char *src_ip;
+                            socklen_t len = sizeof(cliaddr);
+                            char buffer[100];
+                            recvfrom(udp_fd, buffer, sizeof(buffer), 0,
+                                  (struct sockaddr*)&cliaddr, &len);
+                            src_ip = inet_ntoa(cliaddr.sin_addr);
+                            printf("\nMessage from client %s: %s\n",
+                                  src_ip, buffer);
+                         }
                     }
                }
           }
+        if (error != 0)
+          {
+             tcsetattr(STDIN_FILENO, TCSANOW, &old_in_t);
+             ret = 1;
+          }
      }
-   printf("Id: %d\n", id);
-   printf("APP: %s\n", _prg_full_path_guess(argv[0]));
 
 end:
    return ret;
