@@ -9,12 +9,15 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 
 #define _POSIX_
 #include <limits.h>
 
 #define PATH 1024
 
+static char *_script = NULL;
+static const char *_script_cur = NULL;
 static char *
 _prg_full_path_guess(const char *prg)
 {
@@ -36,6 +39,84 @@ _prg_full_path_guess(const char *prg)
      }
    free(paths0);
    return ret;
+}
+
+static char *
+_file_get_as_string(const char *filename)
+{
+   char *file_data = NULL;
+   int file_size;
+   FILE *fp = fopen(filename, "rb");
+   if (!fp)
+     {
+        perror("open");
+        fprintf(stderr, "Can not open file: \"%s\"", filename);
+        return NULL;
+     }
+
+   fseek(fp, 0, SEEK_END);
+   file_size = ftell(fp);
+   if (file_size == -1)
+     {
+        fclose(fp);
+        fprintf(stderr, "Can not ftell file: \"%s\"", filename);
+        return NULL;
+     }
+   rewind(fp);
+   file_data = (char *) calloc(1, file_size + 1);
+   if (!file_data)
+     {
+        fclose(fp);
+        fprintf(stderr, "Calloc failed");
+        return NULL;
+     }
+   int res = fread(file_data, file_size, 1, fp);
+   fclose(fp);
+   if (!res)
+     {
+        free(file_data);
+        file_data = NULL;
+        fprintf(stderr, "fread failed");
+     }
+   return file_data;
+}
+
+static void
+_script_consume()
+{
+}
+
+static void
+_script_load(const char *script_name)
+{
+   char path[1024];
+   struct stat s;
+   if (strstr(script_name, "..") || strchr(script_name, '/'))
+     {
+        fprintf(stderr, "Script name (%s) should not contain the path\n",
+              script_name);
+        return;
+     }
+   sprintf(path, "%s/.config/zcra/scripts/%s.zcra",
+         getenv("HOME"), script_name);
+
+   if (stat(path, &s) == -1)
+     {
+        fprintf(stderr, "Script %s permission cannot be read\n", path);
+        perror("stat");
+        return;
+     }
+
+   if (s.st_mode & (S_IRWXG | S_IRWXO))
+     {
+        fprintf(stderr, "Script %s should be forbidden for other users (chmod 600)\n",
+              path);
+        return;
+     }
+
+   _script = _file_get_as_string(path);
+   _script_cur = _script;
+   _script_consume();
 }
 
 int
@@ -181,11 +262,15 @@ main(int argc, char **argv)
                             char *src_ip;
                             socklen_t len = sizeof(cliaddr);
                             char buffer[100];
+                            char *nl;
                             recvfrom(udp_fd, buffer, sizeof(buffer), 0,
                                   (struct sockaddr*)&cliaddr, &len);
+                            nl = strchr(buffer, '\n');
+                            if (nl) *nl = '\0';
                             src_ip = inet_ntoa(cliaddr.sin_addr);
-                            printf("\nMessage from client %s: %s\n",
+                            printf("\nScript from client %s: %s\n",
                                   src_ip, buffer);
+                            _script_load(buffer);
                          }
                     }
                }
