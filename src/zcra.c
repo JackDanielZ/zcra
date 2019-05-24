@@ -67,6 +67,8 @@ main(int argc, char **argv)
           }
      }
 
+   if (optind >= argc) help = 1;
+
    if (help)
      {
         printf("Usage: %s [-h/--help] [-i/--id] prg [prg_args]\n", argv[0]);
