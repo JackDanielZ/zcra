@@ -5,6 +5,7 @@ endif
 
 default: $(BUILD_DIR)/bin/zcra
 
+CFLAGS += -g -Wall -Wextra -Werror
 LDFLAGS += -lutil
 
 $(BUILD_DIR)/obj/%.o: src/%.c

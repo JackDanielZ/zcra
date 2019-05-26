@@ -11,11 +11,15 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <pty.h>
+#include <signal.h>
+#include <errno.h>
 
 #define _POSIX_
 #include <limits.h>
 
 #define PATH 1024
+
+static int _fd_in = -1;
 
 static char *_script = NULL;
 static const char *_script_cur = NULL;
@@ -120,11 +124,19 @@ _script_load(const char *script_name)
    _script_consume();
 }
 
+static void
+_handle_sigint(int sig)
+{
+   (void) sig;
+   char c = 3;
+   write(_fd_in, &c, 1);
+}
+
 int
 main(int argc, char **argv)
 {
    int opt, id = -1, ret = 0, help = 0;
-   int fd_in, pipe_out[2], udp_fd = -1;
+   int pipe_out[2], udp_fd = -1;
    struct option opts[] =
      {
           { "help", no_argument,       NULL, 'h' },
@@ -162,7 +174,7 @@ main(int argc, char **argv)
 
    pipe(pipe_out);
 
-   if (forkpty(&fd_in, NULL, NULL, NULL) == 0)
+   if (forkpty(&_fd_in, NULL, NULL, NULL) == 0)
      {
         /* Child */
         close(pipe_out[0]);
@@ -182,6 +194,7 @@ main(int argc, char **argv)
         FD_SET(pipe_out[0], &fds);
         max_fd = pipe_out[0];
 
+        signal(SIGINT, _handle_sigint);
         close(pipe_out[1]);
 
         tcgetattr(STDIN_FILENO, &old_in_t);
@@ -220,8 +233,11 @@ main(int argc, char **argv)
              nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
              if (nb == -1)
                {
-                  perror("select");
-                  error = 1;
+                  if (errno != EINTR) {
+                       perror("select");
+                       error = 1;
+                  }
+                  continue;
                }
 
              for (fd = 0; fd < max_fd + 1 && nb; fd++)
@@ -234,21 +250,22 @@ main(int argc, char **argv)
                          {
                             if (read(STDIN_FILENO, &c, 1) == 1)
                               {
-                                 fprintf(stderr, "%d - Received from stdin: %c\n", getpid(), c);
-                                 write(fd_in, &c, 1);
+//                                 fprintf(stderr, "%d - Received from stdin: %c (%.2X)\n", getpid(), c, c);
+                                 write(_fd_in, &c, 1);
                               }
                          }
                        else if (fd == pipe_out[0])
                          {
                             if (read(pipe_out[0], &c, 1) == 1)
                               {
-                                 fprintf(stderr, "%d - new data %c\n", getpid(), c);
+//                                 fprintf(stderr, "%d - new data %c\n", getpid(), c);
                                  printf("%c", c);
                               }
                             else
                               {
                                  FD_CLR(pipe_out[0], &fds);
                                  close(pipe_out[0]);
+                                 error = 1;
                               }
                          }
                        else if (fd == udp_fd)
