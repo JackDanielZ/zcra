@@ -5,6 +5,8 @@ endif
 
 default: $(BUILD_DIR)/bin/zcra
 
+LDFLAGS += -lutil
+
 $(BUILD_DIR)/obj/%.o: src/%.c
 	$(Q)echo Building object $@
 	$(Q)mkdir -p $(@D)

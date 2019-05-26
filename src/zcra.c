@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
+#include <pty.h>
 
 #define _POSIX_
 #include <limits.h>
@@ -123,7 +124,7 @@ int
 main(int argc, char **argv)
 {
    int opt, id = -1, ret = 0, help = 0;
-   int pipe_in[2], pipe_out[2], udp_fd = -1;
+   int fd_in, pipe_out[2], udp_fd = -1;
    struct option opts[] =
      {
           { "help", no_argument,       NULL, 'h' },
@@ -159,16 +160,11 @@ main(int argc, char **argv)
         goto end;
      }
 
-   pipe(pipe_in);
    pipe(pipe_out);
 
-   if (fork() == 0)
+   if (forkpty(&fd_in, NULL, NULL, NULL) == 0)
      {
         /* Child */
-        dup2(pipe_in[0], STDIN_FILENO);
-        close(pipe_in[0]);
-        close(pipe_in[1]);
-
         close(pipe_out[0]);
         dup2(pipe_out[1], STDOUT_FILENO);
         close(pipe_out[1]);
@@ -186,7 +182,6 @@ main(int argc, char **argv)
         FD_SET(pipe_out[0], &fds);
         max_fd = pipe_out[0];
 
-        close(pipe_in[0]);
         close(pipe_out[1]);
 
         tcgetattr(STDIN_FILENO, &old_in_t);
@@ -240,7 +235,7 @@ main(int argc, char **argv)
                             if (read(STDIN_FILENO, &c, 1) == 1)
                               {
                                  fprintf(stderr, "%d - Received from stdin: %c\n", getpid(), c);
-                                 write(pipe_in[1], &c, 1);
+                                 write(fd_in, &c, 1);
                               }
                          }
                        else if (fd == pipe_out[0])
