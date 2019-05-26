@@ -16,7 +16,7 @@
       - Operation:
          + When script name received on UDP, check script existence. Not exists -> nothing to do
          + Begin script consumption
-         - TYPE: send all the line to the app
+         + TYPE: send all the line to the app
          - PASSWORD: send the password to the app
          - WAIT_INPUT:
             - Set wait flag to 1

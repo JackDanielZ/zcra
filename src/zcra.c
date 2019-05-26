@@ -89,6 +89,20 @@ _file_get_as_string(const char *filename)
 static void
 _script_consume()
 {
+   char cr = 0x0A;
+   char *nl = strchr(_script_cur, '\n');
+   if (nl) *nl = '\0';
+   if (!strncmp(_script_cur, "TYPE ", 5))
+     {
+        write(_fd_in, _script_cur + 5, strlen(_script_cur + 5));
+        write(_fd_in, &cr, 1);
+     }
+   else
+     {
+        fprintf(stderr, "Unrecognized line: %s\n", _script_cur);
+     }
+   if (nl) _script_cur = nl + 1;
+   else _script_cur = NULL;
 }
 
 static void
