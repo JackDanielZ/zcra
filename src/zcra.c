@@ -89,20 +89,67 @@ _file_get_as_string(const char *filename)
 static void
 _script_consume()
 {
+   int exit = 0;
    char cr = 0x0A;
-   char *nl = strchr(_script_cur, '\n');
-   if (nl) *nl = '\0';
-   if (!strncmp(_script_cur, "TYPE ", 5))
+   while (!exit && _script_cur)
      {
-        write(_fd_in, _script_cur + 5, strlen(_script_cur + 5));
-        write(_fd_in, &cr, 1);
+        char *nl = strchr(_script_cur, '\n');
+        if (nl) *nl = '\0';
+
+        while (*_script_cur == ' ') _script_cur++;
+
+        if (*_script_cur)
+          {
+             if (!strncmp(_script_cur, "TYPE ", 5))
+               {
+                  write(_fd_in, _script_cur + 5, strlen(_script_cur + 5));
+                  write(_fd_in, &cr, 1);
+               }
+             else if (!strncmp(_script_cur, "PASSWORD ", 9))
+               {
+                  char pw_path[1024], *pw, *pw_nl;
+                  const char *pw_alias = _script_cur + 9;
+                  struct stat s;
+
+                  if (strstr(pw_alias, "..") || strchr(pw_alias, '/'))
+                    {
+                       fprintf(stderr, "Password alias (%s) should not contain the path\n", pw_alias);
+                       return;
+                    }
+                  sprintf(pw_path, "%s/.config/zcra/passwords/%s", getenv("HOME"), pw_alias);
+
+                  if (stat(pw_path, &s) == -1)
+                    {
+                       fprintf(stderr, "Password file %s: permission cannot be read\n", pw_path);
+                       perror("stat");
+                       return;
+                    }
+
+                  if (s.st_mode & (S_IRWXG | S_IRWXO))
+                    {
+                       fprintf(stderr, "Password %s should be forbidden for other users (chmod 600)\n", pw_path);
+                       return;
+                    }
+
+                  pw = _file_get_as_string(pw_path);
+                  pw_nl = strchr(pw, '\n');
+                  if (*pw_nl) *pw_nl = '\0';
+                  write(_fd_in, pw, strlen(pw));
+                  write(_fd_in, &cr, 1);
+                  free(pw);
+               }
+             else
+               {
+                  fprintf(stderr, "Unrecognized line: %s\n", _script_cur);
+               }
+          }
+        if (nl) _script_cur = nl + 1;
+        else
+          {
+             _script_cur = NULL;
+             exit = 1;
+          }
      }
-   else
-     {
-        fprintf(stderr, "Unrecognized line: %s\n", _script_cur);
-     }
-   if (nl) _script_cur = nl + 1;
-   else _script_cur = NULL;
 }
 
 static void
