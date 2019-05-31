@@ -13,16 +13,19 @@
 #include <pty.h>
 #include <signal.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #define _POSIX_
 #include <limits.h>
 
 #define PATH 1024
 
-static int _fd_in = -1;
+static int _app_fd = -1;
 
 static char *_script = NULL;
 static const char *_script_cur = NULL;
+static const char *_wait_str = NULL;
+
 static char *
 _prg_full_path_guess(const char *prg)
 {
@@ -102,8 +105,8 @@ _script_consume()
           {
              if (!strncmp(_script_cur, "TYPE ", 5))
                {
-                  write(_fd_in, _script_cur + 5, strlen(_script_cur + 5));
-                  write(_fd_in, &cr, 1);
+                  write(_app_fd, _script_cur + 5, strlen(_script_cur + 5));
+                  write(_app_fd, &cr, 1);
                }
              else if (!strncmp(_script_cur, "PASSWORD ", 9))
                {
@@ -134,9 +137,14 @@ _script_consume()
                   pw = _file_get_as_string(pw_path);
                   pw_nl = strchr(pw, '\n');
                   if (*pw_nl) *pw_nl = '\0';
-                  write(_fd_in, pw, strlen(pw));
-                  write(_fd_in, &cr, 1);
+                  write(_app_fd, pw, strlen(pw));
+                  write(_app_fd, &cr, 1);
                   free(pw);
+               }
+             else if (!strncmp(_script_cur, "WAIT ", 5))
+               {
+                  _wait_str = _script_cur + 5;
+                  exit = 1;
                }
              else
                {
@@ -144,11 +152,13 @@ _script_consume()
                }
           }
         if (nl) _script_cur = nl + 1;
-        else
-          {
-             _script_cur = NULL;
-             exit = 1;
-          }
+        else exit = 1;
+     }
+   if (!_wait_str)
+     {
+        free(_script);
+        _script = NULL;
+        _script_cur = NULL;
      }
 }
 
@@ -190,14 +200,14 @@ _handle_sigint(int sig)
 {
    (void) sig;
    char c = 3;
-   write(_fd_in, &c, 1);
+   write(_app_fd, &c, 1);
 }
 
 int
 main(int argc, char **argv)
 {
    int opt, id = -1, ret = 0, help = 0;
-   int pipe_out[2], udp_fd = -1;
+   int udp_fd = -1;
    struct option opts[] =
      {
           { "help", no_argument,       NULL, 'h' },
@@ -233,15 +243,9 @@ main(int argc, char **argv)
         goto end;
      }
 
-   pipe(pipe_out);
-
-   if (forkpty(&_fd_in, NULL, NULL, NULL) == 0)
+   struct termios old_in_t, t;
+   if (forkpty(&_app_fd, NULL, NULL, NULL) == 0)
      {
-        /* Child */
-        close(pipe_out[0]);
-        dup2(pipe_out[1], STDOUT_FILENO);
-        close(pipe_out[1]);
-
         execv(_prg_full_path_guess(argv[optind]), argv + optind);
      }
    else
@@ -249,25 +253,18 @@ main(int argc, char **argv)
         /* ZCRA */
         fd_set fds, rfds;
         int nb, fd, max_fd, error = 0;
-        struct termios old_in_t, t;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
-        FD_SET(pipe_out[0], &fds);
-        max_fd = pipe_out[0];
+        FD_SET(_app_fd, &fds);
+        max_fd = _app_fd;
 
         signal(SIGINT, _handle_sigint);
-        close(pipe_out[1]);
 
         tcgetattr(STDIN_FILENO, &old_in_t);
         t = old_in_t;
         t.c_lflag &= ~ICANON;
         t.c_lflag |= ECHO;
         tcsetattr(STDIN_FILENO, TCSANOW, &t);
-
-        tcgetattr(pipe_out[0], &t);
-        t.c_lflag &= ~ICANON;
-        t.c_lflag &= ~ECHO;
-        tcsetattr(pipe_out[0], TCSANOW, &t);
 
         /* UDP initialization */
         if (id >= 0)
@@ -290,6 +287,9 @@ main(int argc, char **argv)
 
         while (error == 0)
           {
+             unsigned int max_wait_len = 0, cur_wait_len = 0;
+             char *wait_buf = NULL;
+
              rfds = fds;
              nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
              if (nb == -1)
@@ -311,21 +311,46 @@ main(int argc, char **argv)
                          {
                             if (read(STDIN_FILENO, &c, 1) == 1)
                               {
-//                                 fprintf(stderr, "%d - Received from stdin: %c (%.2X)\n", getpid(), c, c);
-                                 write(_fd_in, &c, 1);
+                                 write(_app_fd, &c, 1);
                               }
                          }
-                       else if (fd == pipe_out[0])
+                       else if (fd == _app_fd)
                          {
-                            if (read(pipe_out[0], &c, 1) == 1)
+                            if (read(_app_fd, &c, 1) == 1)
                               {
-//                                 fprintf(stderr, "%d - new data %c\n", getpid(), c);
                                  printf("%c", c);
+                                 if (_wait_str)
+                                   {
+                                      if (!max_wait_len)
+                                        {
+                                           max_wait_len = 16;
+                                           wait_buf = malloc(max_wait_len);
+                                        }
+                                      if (max_wait_len == cur_wait_len + 1)
+                                        {
+                                           max_wait_len <<= 1;
+                                           wait_buf = realloc(wait_buf, max_wait_len);
+                                           fprintf(stderr, "Realloc wait_buf to %d bytes\n",
+                                                 max_wait_len);
+                                        }
+
+                                      wait_buf[cur_wait_len] = c;
+                                      cur_wait_len++;
+                                      wait_buf[cur_wait_len] = '\0';
+
+                                      if (strstr(wait_buf, _wait_str))
+                                        {
+                                           cur_wait_len = 0;
+                                           _wait_str = NULL;
+                                           _script_consume();
+                                        }
+                                      if (c == '\n') cur_wait_len = 0;
+                                   }
                               }
                             else
                               {
-                                 FD_CLR(pipe_out[0], &fds);
-                                 close(pipe_out[0]);
+                                 FD_CLR(_app_fd, &fds);
+                                 close(_app_fd);
                                  error = 1;
                               }
                          }
