@@ -264,7 +264,7 @@ main(int argc, char **argv)
         tcgetattr(STDIN_FILENO, &old_in_t);
         t = old_in_t;
         t.c_lflag &= ~ICANON;
-        t.c_lflag |= ECHO;
+        t.c_lflag &= ~ECHO;
         tcsetattr(STDIN_FILENO, TCSANOW, &t);
 
         t.c_cc[VMIN] = 1;
