@@ -3,26 +3,9 @@
    + The tool launches prg with the args and provides pipes for stdin and stdout
    + Every character received on one side is sent to the other side (tool_stdin -> pipe[0] -> pipe[1] -> prg_stdin)
    - Script:
-      + The user sends the script name over UDP via bash command: echo blabla > /dev/udp/127.0.0.1/400??
-      + A UDP socket is created to receive external commands on port 40000+id:
-         + Format: script_name\0
-         + script_name is the name of the script stored in .config/zcra/scripts/name.zcra. Check validity of the name (no path...) and ?permissions?
-         + Listened by select directly
-      - Script format as e_kinjector plus:
-         - WAIT txt
-         + PASSWORD alias
-            + Send the provided password to the prg
-            + Stored in .config/zcra/passwords/password.alias. chmod must be checked on the directory and the files.
-      - Operation:
-         + When script name received on UDP, check script existence. Not exists -> nothing to do
-         + Begin script consumption
-         + TYPE: send all the line to the app
-         + PASSWORD: send the password to the app
-         - WAIT:
-            + Set wait flag to str
-            + Return to select
-            - When output is read, store into buf if wait flag is 1
-            - Check strstr(buf, wait_str)
-               - If found, continue consuming
-   - Anyway, reset output buffer
-         ? DELAY: needed? If needed, add timer to select. When reached, continue consumption
+      ? DELAY: needed? If needed, add timer to select. When reached, continue consumption
+      - MAIL support
+      - Wait on more than one string
+         ? Conditions
+
+- Fix Ctrl-C issue (reproduce with zplay)
