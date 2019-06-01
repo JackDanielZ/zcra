@@ -244,6 +244,7 @@ main(int argc, char **argv)
      }
 
    struct termios old_in_t, t;
+   setbuf(stdout, NULL);
    if (forkpty(&_app_fd, NULL, NULL, NULL) == 0)
      {
         execv(_prg_full_path_guess(argv[optind]), argv + optind);
@@ -265,6 +266,13 @@ main(int argc, char **argv)
         t.c_lflag &= ~ICANON;
         t.c_lflag |= ECHO;
         tcsetattr(STDIN_FILENO, TCSANOW, &t);
+
+        t.c_cc[VMIN] = 1;
+        t.c_cc[VTIME] = 0;
+        t.c_oflag &= ~OPOST;
+        t.c_lflag &= ~(ICANON|ISIG|ECHO);
+        t.c_iflag &= ~(INLCR|IGNCR|ICRNL|IUCLC|IXON);
+        tcsetattr(_app_fd, TCSANOW, &t);
 
         /* UDP initialization */
         if (id >= 0)
