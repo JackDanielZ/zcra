@@ -251,6 +251,9 @@ main(int argc, char **argv)
      }
    else
      {
+        unsigned int max_wait_len = 0, cur_wait_len = 0;
+        char *wait_buf = NULL;
+
         /* ZCRA */
         fd_set fds, rfds;
         int nb, fd, max_fd, error = 0;
@@ -295,9 +298,6 @@ main(int argc, char **argv)
 
         while (error == 0)
           {
-             unsigned int max_wait_len = 0, cur_wait_len = 0;
-             char *wait_buf = NULL;
-
              rfds = fds;
              nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
              if (nb == -1)
@@ -345,6 +345,7 @@ main(int argc, char **argv)
                                       wait_buf[cur_wait_len] = c;
                                       cur_wait_len++;
                                       wait_buf[cur_wait_len] = '\0';
+//                                      fprintf(stderr, "WAIT \"%s\" in \"%s\"\n", _wait_str, wait_buf);
 
                                       if (strstr(wait_buf, _wait_str))
                                         {
