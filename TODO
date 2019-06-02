@@ -9,3 +9,5 @@
          ? Conditions
 
 - Fix Ctrl-C issue (reproduce with zplay)
+- Add option --log/-l to log to a file
+   - Always check that the file exists
