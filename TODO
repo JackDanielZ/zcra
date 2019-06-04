@@ -11,3 +11,8 @@
 - Fix Ctrl-C issue (reproduce with zplay)
 - Add option --log/-l to log to a file
    - Always check that the file exists
+- Add WAIT_TIME Xs/Yms EXIT/CONTINUE str
+   Waits for str maximum X seconds, Y milliseconds and continue or exit
+   example:
+      - WAIT_TIME 2s EXIT password:
+      - WAIT_TIME 100ms CONTINUE ***when scp doesn't know the host***
