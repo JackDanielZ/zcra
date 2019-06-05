@@ -10,8 +10,6 @@
 
 - Fix Ctrl-C issue (reproduce with zplay)
    - If pipe used, Ctrl-C is not caught by zcra. Maybe by the pipe.
-- Add option --log/-l to log to a file
-   - Always check that the file exists
 - Add WAIT_TIME Xs/Yms EXIT/CONTINUE str
    Waits for str maximum X seconds, Y milliseconds and continue or exit
    example:

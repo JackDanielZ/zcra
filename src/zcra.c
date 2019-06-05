@@ -14,6 +14,8 @@
 #include <signal.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
+#include <sys/inotify.h>
 
 #define _POSIX_
 #include <limits.h>
@@ -25,6 +27,35 @@ static int _app_fd = -1;
 static char *_script = NULL;
 static const char *_script_cur = NULL;
 static const char *_wait_str = NULL;
+
+static const char *_log_file = NULL;
+static int _log_fd = -1;
+
+static void
+LOG(const char *fmt, ...)
+{
+   va_list args;
+   char buf[1024];
+   if (!_log_file) return;
+
+   va_start(args, fmt);
+   vsnprintf(buf, sizeof(buf), fmt, args);
+   va_end(args);
+
+   if (_log_fd == -1)
+     {
+        _log_fd = open(_log_file, O_WRONLY | O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
+        if (_log_fd == -1)
+          {
+             perror("log_open");
+             return;
+          }
+     }
+   if (write(_log_fd, buf, strlen(buf)) <= 0)
+     {
+        perror("log_write");
+     }
+}
 
 static char *
 _prg_full_path_guess(const char *prg)
@@ -210,12 +241,13 @@ main(int argc, char **argv)
    int udp_fd = -1;
    struct option opts[] =
      {
-          { "help", no_argument,       NULL, 'h' },
-          { "id",   required_argument, NULL, 'i' },
+          { "help",  no_argument,       NULL, 'h' },
+          { "id",    required_argument, NULL, 'i' },
+          { "log",   required_argument, NULL, 'l' },
           { NULL,   0,                 NULL, 0   }
      };
 
-   for (opt = 0; (opt = getopt_long(argc, argv, "hi:", opts, NULL)) != -1; )
+   for (opt = 0; (opt = getopt_long(argc, argv, "hi:l:", opts, NULL)) != -1; )
      {
         switch (opt)
           {
@@ -225,6 +257,9 @@ main(int argc, char **argv)
                    break;
            case 'i':
                    id = strtol(optarg, NULL, 10);
+                   break;
+           case 'l':
+                   _log_file = optarg;
                    break;
            default:
                    help = 1;
@@ -236,9 +271,10 @@ main(int argc, char **argv)
 
    if (help)
      {
-        printf("Usage: %s [-h/--help] [-i/--id] prg [prg_args]\n", argv[0]);
+        printf("Usage: %s [-h/--help] [-i/--id id] [-l/--log logfile] prg [prg_args]\n", argv[0]);
         printf("       -h | --help Print that help\n");
         printf("       -i | --id   Id of the instance when remote usage is needed. If not provided, no remote is possible.\n");
+        printf("       -l | --log  File path where to store the log.\n");
         ret = 1;
         goto end;
      }
@@ -255,8 +291,9 @@ main(int argc, char **argv)
         char *wait_buf = NULL;
 
         /* ZCRA */
-        fd_set fds, rfds;
+        fd_set fds;
         int nb, fd, max_fd, error = 0;
+        int inot_fd = -1, log_inot_wfd = -1;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
         FD_SET(_app_fd, &fds);
@@ -296,9 +333,37 @@ main(int argc, char **argv)
              if (udp_fd > max_fd) max_fd = udp_fd;
           }
 
+        if (_log_file)
+          {
+             if (inot_fd == -1)
+               {
+                  inot_fd = inotify_init();
+                  FD_SET(inot_fd, &fds);
+                  if (inot_fd > max_fd) max_fd = inot_fd;
+               }
+          }
         while (error == 0)
           {
-             rfds = fds;
+             fd_set rfds = fds;
+
+             if (_log_file)
+               {
+                  if (_log_fd == -1)
+                    {
+                       _log_fd = open(_log_file, O_WRONLY | O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
+                       if (_log_fd == -1)
+                         {
+                            perror("log_open");
+                         }
+                    }
+                  if (log_inot_wfd == -1)
+                    {
+                       log_inot_wfd = inotify_add_watch(inot_fd, _log_file,
+                             IN_ATTRIB | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF);
+                       if (log_inot_wfd == -1) perror("inotify_add_watch");
+                    }
+               }
+
              nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
              if (nb == -1)
                {
@@ -327,6 +392,7 @@ main(int argc, char **argv)
                             if (read(_app_fd, &c, 1) == 1)
                               {
                                  printf("%c", c);
+                                 LOG("%c", c);
                                  if (_wait_str)
                                    {
                                       if (!max_wait_len)
@@ -338,7 +404,7 @@ main(int argc, char **argv)
                                         {
                                            max_wait_len <<= 1;
                                            wait_buf = realloc(wait_buf, max_wait_len);
-                                           fprintf(stderr, "Realloc wait_buf to %d bytes\n",
+                                           LOG("Realloc wait_buf to %d bytes\n",
                                                  max_wait_len);
                                         }
 
@@ -375,9 +441,22 @@ main(int argc, char **argv)
                             nl = strchr(buffer, '\n');
                             if (nl) *nl = '\0';
                             src_ip = inet_ntoa(cliaddr.sin_addr);
-                            printf("\nScript from client %s: %s\n",
-                                  src_ip, buffer);
+                            LOG("\nScript from client %s: %s\n", src_ip, buffer);
                             _script_load(buffer);
+                         }
+                       else if (fd == inot_fd)
+                         {
+                            struct inotify_event event;
+                            if (read(inot_fd, &event, sizeof(event)) == sizeof(event))
+                              {
+                                 if (event.wd == log_inot_wfd)
+                                   {
+                                      close(_log_fd);
+                                      inotify_rm_watch(inot_fd, log_inot_wfd);
+                                      _log_fd = -1;
+                                      log_inot_wfd = -1;
+                                   }
+                              }
                          }
                     }
                }
