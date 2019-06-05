@@ -23,6 +23,7 @@
 #define PATH 1024
 
 static int _app_fd = -1;
+static int _app_pid = -1;
 
 static char *_script = NULL;
 static const char *_script_cur = NULL;
@@ -232,6 +233,7 @@ _handle_sigint(int sig)
    (void) sig;
    char c = 3;
    write(_app_fd, &c, 1);
+   kill(_app_pid, SIGINT);
 }
 
 int
@@ -281,7 +283,7 @@ main(int argc, char **argv)
 
    struct termios old_in_t, t;
    setbuf(stdout, NULL);
-   if (forkpty(&_app_fd, NULL, NULL, NULL) == 0)
+   if ((_app_pid = forkpty(&_app_fd, NULL, NULL, NULL)) == 0)
      {
         execv(_prg_full_path_guess(argv[optind]), argv + optind);
      }
