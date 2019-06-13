@@ -126,6 +126,14 @@ _file_get_as_string(const char *filename)
 }
 
 static void
+_script_terminate()
+{
+   free(_script);
+   _script = NULL;
+   _script_cur = NULL;
+   PRINT("Script terminated\n");
+}
+static void
 _script_consume()
 {
    int exit = 0;
@@ -192,9 +200,7 @@ _script_consume()
      }
    if (!_wait_str)
      {
-        free(_script);
-        _script = NULL;
-        _script_cur = NULL;
+        _script_terminate();
      }
 }
 
