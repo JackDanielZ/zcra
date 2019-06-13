@@ -28,6 +28,8 @@ static int _app_pid = -1;
 static char *_script = NULL;
 static const char *_script_cur = NULL;
 static const char *_wait_str = NULL;
+static struct timeval _wait_tm;
+static unsigned int _wait_fail_continue;
 
 static const char *_log_file = NULL;
 static int _log_fd = -1;
@@ -189,6 +191,57 @@ _script_consume()
                {
                   _wait_str = _script_cur + 5;
                   exit = 1;
+               }
+             else if (!strncmp(_script_cur, "WAIT_TIME ", 10))
+               {
+                  char *end_time;
+                  unsigned int time_us = 0, time_s = 0, time;
+                  _script_cur += 10;
+                  time = strtol(_script_cur, &end_time, 10);
+                  if (end_time != _script_cur)
+                    {
+                       while (*end_time == ' ') end_time++;
+                       if (!strncmp(end_time, "ms ", 3))
+                         {
+                            time_us = time * 1000000;
+                            _script_cur = end_time + 3;
+                         }
+                       else if (!strncmp(end_time, "s ", 2))
+                         {
+                            time_s = time;
+                            _script_cur = end_time + 2;
+                         }
+                       else
+                         {
+                            PRINT("Expected time in milli-seconds or seconds\n");
+                            return;
+                         }
+                       _wait_tm.tv_sec = time_s;
+                       _wait_tm.tv_usec = time_us;
+                       while (*_script_cur == ' ') _script_cur++;
+                       if (!strncmp(_script_cur, "CONTINUE ", 9))
+                         {
+                            _wait_fail_continue = 1;
+                            _script_cur += 9;
+                         }
+                       else if (!strncmp(_script_cur, "EXIT ", 5))
+                         {
+                            _wait_fail_continue = 0;
+                            _script_cur += 5;
+                         }
+                       else
+                         {
+                            PRINT("Expected CONTINUE or EXIT\n");
+                            return;
+                         }
+                       while (*_script_cur == ' ') _script_cur++;
+                       _wait_str = _script_cur;
+                       exit = 1;
+                    }
+                  else
+                    {
+                       PRINT("Expected time\n");
+                    }
                }
              else
                {
@@ -376,7 +429,22 @@ main(int argc, char **argv)
                     }
                }
 
-             nb = select(max_fd + 1, &rfds, NULL, NULL, NULL);
+             nb = select(max_fd + 1, &rfds, NULL, NULL,
+                   _wait_tm.tv_sec || _wait_tm.tv_usec ? &_wait_tm : NULL);
+             if (nb == 0)
+               {
+                  /* Timeout */
+                  if (_wait_fail_continue == 1)
+                    {
+                       cur_wait_len = 0;
+                       _wait_str = NULL;
+                       _script_consume();
+                    }
+                  else
+                    {
+                       _script_terminate();
+                    }
+               }
              if (nb == -1)
                {
                   if (errno != EINTR) {
@@ -429,6 +497,7 @@ main(int argc, char **argv)
                                         {
                                            cur_wait_len = 0;
                                            _wait_str = NULL;
+                                           memset(&_wait_tm, 0, sizeof(_wait_tm));
                                            _script_consume();
                                         }
                                       if (c == '\n') cur_wait_len = 0;

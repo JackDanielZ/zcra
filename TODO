@@ -1,15 +1,4 @@
-- Process:
-   + zcra [options: -i/--id] prg [args]
-   + The tool launches prg with the args and provides pipes for stdin and stdout
-   + Every character received on one side is sent to the other side (tool_stdin -> pipe[0] -> pipe[1] -> prg_stdin)
-   - Script:
-      ? DELAY: needed? If needed, add timer to select. When reached, continue consumption
-      - MAIL support
-      - Wait on more than one string
-         ? Conditions
-
-- Add WAIT_TIME Xs/Yms EXIT/CONTINUE str
-   Waits for str maximum X seconds, Y milliseconds and continue or exit
-   example:
-      - WAIT_TIME 2s EXIT password:
-      - WAIT_TIME 100ms CONTINUE ***when scp doesn't know the host***
+? DELAY: needed? If needed, add timer to select. When reached, continue consumption
+- MAIL support
+- Wait on more than one string
+   ? Conditions
