@@ -32,6 +32,10 @@ static const char *_wait_str = NULL;
 static const char *_log_file = NULL;
 static int _log_fd = -1;
 
+#define PRINT(...) \
+   fprintf(stderr, __VA_ARGS__); \
+   LOG(__VA_ARGS__);
+
 static void
 LOG(const char *fmt, ...)
 {
@@ -148,21 +152,21 @@ _script_consume()
 
                   if (strstr(pw_alias, "..") || strchr(pw_alias, '/'))
                     {
-                       fprintf(stderr, "Password alias (%s) should not contain the path\n", pw_alias);
+                       PRINT("Password alias (%s) should not contain the path\n", pw_alias);
                        return;
                     }
                   sprintf(pw_path, "%s/.config/zcra/passwords/%s", getenv("HOME"), pw_alias);
 
                   if (stat(pw_path, &s) == -1)
                     {
-                       fprintf(stderr, "Password file %s: permission cannot be read\n", pw_path);
+                       PRINT("Password file %s: permission cannot be read\n", pw_path);
                        perror("stat");
                        return;
                     }
 
                   if (s.st_mode & (S_IRWXG | S_IRWXO))
                     {
-                       fprintf(stderr, "Password %s should be forbidden for other users (chmod 600)\n", pw_path);
+                       PRINT("Password %s should be forbidden for other users (chmod 600)\n", pw_path);
                        return;
                     }
 
@@ -180,7 +184,7 @@ _script_consume()
                }
              else
                {
-                  fprintf(stderr, "Unrecognized line: %s\n", _script_cur);
+                  PRINT("Unrecognized line: %s\n", _script_cur);
                }
           }
         if (nl) _script_cur = nl + 1;
@@ -201,7 +205,7 @@ _script_load(const char *script_name)
    struct stat s;
    if (strstr(script_name, "..") || strchr(script_name, '/'))
      {
-        fprintf(stderr, "Script name (%s) should not contain the path\n",
+        PRINT("Script name (%s) should not contain the path\n",
               script_name);
         return;
      }
@@ -210,14 +214,14 @@ _script_load(const char *script_name)
 
    if (stat(path, &s) == -1)
      {
-        fprintf(stderr, "Script %s permission cannot be read\n", path);
+        PRINT("Script %s permission cannot be read\n", path);
         perror("stat");
         return;
      }
 
    if (s.st_mode & (S_IRWXG | S_IRWXO))
      {
-        fprintf(stderr, "Script %s should be forbidden for other users (chmod 600)\n",
+        PRINT("Script %s should be forbidden for other users (chmod 600)\n",
               path);
         return;
      }
@@ -413,7 +417,7 @@ main(int argc, char **argv)
                                       wait_buf[cur_wait_len] = c;
                                       cur_wait_len++;
                                       wait_buf[cur_wait_len] = '\0';
-//                                      fprintf(stderr, "WAIT \"%s\" in \"%s\"\n", _wait_str, wait_buf);
+//                                      PRINT("WAIT \"%s\" in \"%s\"\n", _wait_str, wait_buf);
 
                                       if (strstr(wait_buf, _wait_str))
                                         {
