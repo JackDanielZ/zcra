@@ -296,7 +296,7 @@ _handle_sigint(int sig)
    (void) sig;
    char c = 3;
    write(_app_fd, &c, 1);
-   kill(_app_pid, SIGINT);
+//   kill(_app_pid, SIGINT);
 }
 
 int
